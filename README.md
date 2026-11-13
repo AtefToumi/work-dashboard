@@ -8,6 +8,8 @@ A local, Markdown-backed dashboard for tasks, daily journals, references, eviden
 - Windows, macOS, or Linux for native operation.
 - Docker is optional.
 
+For complete operating-system instructions, see [Windows, Linux, and macOS setup](docs/platform-setup.md).
+
 ## Try the portable example
 
 ```powershell
@@ -24,6 +26,13 @@ node server.mjs
 ```
 
 Relative project paths resolve from the selected configuration file.
+
+On Linux and macOS:
+
+```bash
+cp sources.example.json sources.local.json
+SOURCES_CONFIG="$PWD/sources.local.json" node server.mjs
+```
 
 ## Connect real projects
 
@@ -73,6 +82,7 @@ Compose publishes only `127.0.0.1:8080` and runs the synthetic example with a re
 ## Documentation
 
 - [Agent guide](AGENTS.md)
+- [Windows, Linux, and macOS setup](docs/platform-setup.md)
 - [Architecture](docs/architecture.md)
 - [Data model](docs/data-model.md)
 - [Security and privacy](docs/security.md)

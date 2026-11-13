@@ -21,6 +21,16 @@ Copy-Item -Recurse -Force (Join-Path $repo 'skills\tidy-up') $destination
 
 Review installed copies before overwriting customizations. Repository copies are maintained source; installed copies are runtime deployments.
 
+On Linux and macOS:
+
+```bash
+destination="${CODEX_HOME:-$HOME/.codex}/skills"
+mkdir -p "$destination"
+cp -R skills/start-day "$destination/"
+cp -R skills/update-journal "$destination/"
+cp -R skills/tidy-up "$destination/"
+```
+
 ## Validation
 
 ```powershell

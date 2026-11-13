@@ -4,7 +4,7 @@ Read this file first when changing the repository. Work Dashboard is a local Nod
 
 ## Start here
 
-1. Read [README.md](README.md) for setup and operation.
+1. Read [README.md](README.md) and [docs/platform-setup.md](docs/platform-setup.md) for setup and operation.
 2. Read [AUTHORING.md](AUTHORING.md) before changing record semantics.
 3. Read [docs/architecture.md](docs/architecture.md) and [docs/data-model.md](docs/data-model.md) before changing catalog, write, or UI behavior.
 4. Read [docs/security.md](docs/security.md) before changing paths, HTTP handling, Docker mounts, or write APIs.
