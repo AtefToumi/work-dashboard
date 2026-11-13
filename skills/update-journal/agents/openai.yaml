@@ -1,0 +1,6 @@
+interface:
+  display_name: "Update Journal"
+  short_description: "Document chat progress and update project journals"
+  default_prompt: "Use $update-journal to document what we did in this chat and update the relevant tasks and work journal."
+policy:
+  allow_implicit_invocation: true

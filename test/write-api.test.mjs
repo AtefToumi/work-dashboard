@@ -1,0 +1,31 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import {createServer} from '../server.mjs';
+
+test('write API requires same origin, token, JSON and validates versioned CRUD without delete',async t=>{
+  const dir=await mkdtemp(path.join(os.tmpdir(),'work-api-'));await mkdir(path.join(dir,'tasks'));
+  const config=path.join(dir,'sources.json');await writeFile(config,JSON.stringify({projects:[{id:'demo',name:'Demo',roots:['tasks'],taskRoot:'tasks',taskPrefix:'DEMO'}]}));
+  const server=createServer({configPath:config});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  t.after(async()=>{server.closeAllConnections();await new Promise(r=>server.close(r));await rm(dir,{recursive:true,force:true});});
+  const url='http://127.0.0.1:'+server.address().port;
+  const catalog=await (await fetch(url+'/api/catalog')).json();
+  assert.match(catalog.csrfToken,/^[a-f0-9]{64}$/);
+  const headers={Origin:url,'Content-Type':'application/json','X-Work-Journal-Token':catalog.csrfToken};
+  const task={projectId:'demo',title:'Write test',status:'todo',priority:'normal',category:'testing',body:'Details',summary:''};
+  const send=(h=headers,body=JSON.stringify(task))=>fetch(url+'/api/tasks',{method:'POST',headers:h,body});
+  assert.equal((await send({...headers,Origin:'http://evil.example'})).status,403);
+  const noOrigin={...headers};delete noOrigin.Origin;assert.equal((await send(noOrigin)).status,403);
+  assert.equal((await send({...headers,'X-Work-Journal-Token':'wrong'})).status,403);
+  assert.equal((await send({...headers,'Content-Type':'text/plain'})).status,415);
+  assert.equal((await send(headers,'{broken')).status,400);
+  assert.equal((await send(headers,'x'.repeat(300000))).status,413);
+  const created=await send();assert.equal(created.status,201);const a=await created.json();assert.equal(a.taskId,'DEMO-001');
+  const changed=await fetch(url+'/api/tasks/'+a.id,{method:'PATCH',headers,body:JSON.stringify({status:'done',version:a.version})});
+  assert.equal(changed.status,200);const b=await changed.json();assert.equal(b.status,'done');assert.ok(b.completedAt);
+  const stale=await fetch(url+'/api/tasks/'+a.id,{method:'PATCH',headers,body:JSON.stringify({title:'Lose update',version:a.version})});assert.equal(stale.status,409);
+  assert.equal((await fetch(url+'/api/tasks/'+a.id,{method:'DELETE',headers})).status,405);
+  const onDisk=await readFile(path.join(dir,'tasks','DEMO-001.md'),'utf8');assert.ok(onDisk.includes('"done"'));assert.ok(!onDisk.includes('Lose update'));
+});

@@ -1,0 +1,11 @@
+*
+!Dockerfile
+!package.json
+!server.mjs
+!sources.docker.json
+!lib/
+!lib/**
+!public/
+!public/**
+!examples/
+!examples/**

@@ -1,0 +1,111 @@
+import {filterRecords,statusLabels,categories,categoryLabel,workloadSummary,referenceTopics,documentStates,libraryRecords} from './model.mjs';
+import {openTaskEditor,writeTask} from './editor.mjs';
+import {renderMarkdown} from './markdown.mjs';
+const $=s=>document.querySelector(s);
+function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
+function link(text,href,cls){const a=el('a',cls,text);a.href=href;return a;}
+const routeUrl=(values)=>'#'+new URLSearchParams(Object.entries(values).filter(([,v])=>v)).toString();
+const recordUrl=r=>routeUrl({record:r.id});
+let data={projects:[],records:[],warnings:[]},query='',loading=false,lastList='#view=overview';
+const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+const dateLabel=value=>value?new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'Europe/Berlin'}).format(new Date(value+'T12:00:00Z')):'Undated';
+function badge(status){return el('span','badge '+status,statusLabels[status]||status);}
+function empty(title,text){const box=el('div','empty');box.append(el('strong','',title),el('p','',text));return box;}
+function head(title,sub,eyebrow='YOUR WORKSPACE'){const box=el('div','page-head'),left=el('div');left.append(el('p','eyebrow',eyebrow),el('h1','',title),el('p','subtitle',sub));box.append(left);return box;}
+function section(title,href){const row=el('div','section-heading');row.append(el('h2','',title));if(href)row.append(link('View all →',href,'text-link'));return row;}
+function button(text,action,cls='button secondary'){const b=el('button',cls,text);b.type='button';b.addEventListener('click',()=>action(b));return b;}
+function notify(message){let n=$('#save-notice');if(!n){n=el('div','save-notice');n.id='save-notice';n.setAttribute('role','status');document.body.append(n);}n.textContent=message;}
+function editTask(record=null,projectId=''){openTaskEditor({data,record,projectId,onSaved:async saved=>{query='';$('#search').value='';await refresh();location.hash=recordUrl(saved);notify('Task saved to Markdown.');}});}
+async function toggleTask(r,b){b.disabled=true;try{await writeTask(data,{version:r.version,status:r.status==='done'?'todo':'done'},r.id);await refresh();notify(r.status==='done'?'Task reopened.':'Task marked done.');}catch(err){notify(err.message);}finally{b.disabled=false;}}
+function taskRow(r){const row=el('div','task-row'),square=r.editable?button(r.status==='done'?'✓':'',b=>toggleTask(r,b),'task-square'):el('span','task-square',r.status==='done'?'✓':''),main=link('',recordUrl(r),'task-main');if(r.editable)square.setAttribute('aria-label',(r.status==='done'?'Reopen ':'Mark done: ')+r.title);main.append(el('span','task-title',r.title));const meta=el('div','task-meta');meta.append(el('span','',r.projectName),el('span','',categoryLabel(r.category)));if(r.taskId)meta.append(el('span','',r.taskId));if(r.priority==='high')meta.append(el('span','badge high','High priority'));main.append(meta);row.append(square,main,badge(r.status));return row;}
+function taskList(records){if(!records.length)return empty('Nothing here yet','Tasks matching this view will appear here.');const panel=el('div','panel');for(const r of records)panel.append(taskRow(r));return panel;}
+function journalCard(r){const a=link('',recordUrl(r),'journal-card');a.append(el('span','entry-date',dateLabel(r.date)),el('h3','',r.title),el('p','',r.summary || 'Open the entry to read the full work log.'));const foot=el('div','entry-footer');foot.append(el('span','',r.projectName),el('span','','Read entry ↗'));a.append(foot);return a;}
+function docList(records){if(!records.length)return empty('No matching notes','Try another search or add a Markdown note to a configured project.');const panel=el('div','panel');for(const r of records){const a=link('',recordUrl(r),'doc-row');a.append(el('strong','',r.title),el('small','',r.projectName+' · '+(r.type==='document'?(documentStates[r.documentState]||'Current')+' reference':r.type)+' · '+(r.date?dateLabel(r.date):r.source)));panel.append(a);}return panel;}
+function library(main,route){
+  main.append(head('Reference library','Browse by topic. Current means maintained documentation, not a completed verification.'));
+  const bar=filters(route),topicLabel=el('label','','Topic'),topic=el('select');
+  for(const t of [{id:'',label:'All topics'},...referenceTopics]){const option=el('option','',t.label);option.value=t.id;topic.append(option);}
+  topic.value=route.topic||'';
+  topic.addEventListener('change',()=>{location.hash=routeUrl({...route,topic:topic.value,history:topic.value==='history'?'yes':route.history});});
+  topicLabel.append(topic);bar.append(topicLabel);
+  const historyLabel=el('label','history-toggle'),history=el('input');history.type='checkbox';history.checked=route.history==='yes';
+  history.addEventListener('change',()=>{location.hash=routeUrl({...route,history:history.checked?'yes':'',topic:!history.checked&&route.topic==='history'?'':route.topic});});
+  historyLabel.append(history,document.createTextNode('Include historical notes'));bar.append(historyLabel);
+  const rows=libraryRecords(data.records,{...route,query});bar.append(el('span','results-count',rows.length+' references'));main.append(bar);
+  if(!rows.length){main.append(empty('No matching references','Try another topic or search, or include historical notes.'));return;}
+  for(const t of referenceTopics){const group=rows.filter(r=>(r.topic||'general')===t.id);if(!group.length)continue;
+    const block=el('section','reference-section');block.append(section(t.label+' · '+group.length));const grid=el('div','reference-grid');
+    for(const r of group){const card=link('',recordUrl(r),'reference-card');const meta=el('div','entry-footer');meta.append(el('span','',r.projectName),el('span','badge',documentStates[r.documentState]||'Current'));
+      card.append(meta,el('h3','',r.title),el('p','',r.summary||'Open this reference for details.'),el('small','',r.date?'Updated '+dateLabel(r.date):r.source));grid.append(card);}
+    block.append(grid);main.append(block);
+  }
+}
+function filters(route,withStatus=false){const bar=el('div','filters');
+  function select(label,key,options){const wrap=el('label','',label),input=el('select');input.setAttribute('aria-label',label);for(const [value,text] of options){const opt=el('option','',text);opt.value=value;input.append(opt);}input.value=route[key]||'';input.addEventListener('change',()=>{location.hash=routeUrl({...route,[key]:input.value});});wrap.append(input);bar.append(wrap);}
+  select('Project','project',[['','All projects'],...data.projects.map(p=>[p.id,p.name])]);
+  if(withStatus)select('Status','status',[['','All statuses'],...Object.entries(statusLabels)]);
+  if(withStatus||route.view==='workload')select('Category','category',[['','All categories'],...categories.map(c=>[c.id,c.label])]);
+  return bar;
+}
+function overview(main){
+  const h=head('A little clarity for your work.','Your projects, progress, and decisions. All in one place.');h.append(el('span','date-chip',new Intl.DateTimeFormat('en-GB',{weekday:'short',day:'numeric',month:'long',timeZone:'Europe/Berlin'}).format(new Date())));main.append(h);
+  const hero=el('section','hero'),copy=el('div');copy.append(el('p','eyebrow','ONE ENTRY AT A TIME'),el('h2','','Make room for the work that matters.'),el('p','','Capture what you did, keep the decisions, and leave a clear next step. Your journal turns those notes into a useful overview.'));hero.append(copy,el('div','hero-symbol','✳'));main.append(hero);
+  const tasks=data.records.filter(r=>r.type==='task');const stats=el('div','stats');
+  for(const [label,count,caption,href,icon] of [
+    ['Active tasks',tasks.filter(r=>['todo','in-progress'].includes(r.status)).length,'Planned or in progress',routeUrl({view:'tasks'}),'↗'],
+    ['To verify',tasks.filter(r=>r.status==='verify').length,'Waiting for evidence',routeUrl({view:'tasks',status:'verify'}),'◌'],
+    ['Completed',tasks.filter(r=>r.status==='done').length,'Recorded as done',routeUrl({view:'tasks',status:'done'}),'✓'],
+    ['Projects',data.projects.length,'Explicitly connected',routeUrl({view:'projects'}),'▱']]){const a=link('',href,'stat');a.append(el('span','stat-icon',icon),el('span','stat-label',label),el('span','stat-value',String(count)),el('span','stat-caption',caption));stats.append(a);}main.append(stats);
+  const cols=el('div','columns'),left=el('section'),right=el('section');left.append(section('On your radar',routeUrl({view:'tasks'})));
+  const rank={blocked:0,'in-progress':1,verify:2,todo:3,done:4};left.append(taskList([...tasks].filter(r=>r.status!=='done').sort((a,b)=>rank[a.status]-rank[b.status] || (a.priority==='high'?-1:0)-(b.priority==='high'?-1:0)).slice(0,5)));
+  right.append(section('From your journal',routeUrl({view:'journal'})));const journals=data.records.filter(r=>r.type==='journal').slice(0,2);if(!journals.length)right.append(empty('Your first entry awaits','Tell me what you worked on, and we can record it.'));else for(const r of journals)right.append(journalCard(r));
+  const note=el('div','note');note.append(el('strong','','A record you control'),el('p','','Only explicitly written notes appear here. “To verify” keeps uncertain results separate from completed work.'));right.append(note);cols.append(left,right);main.append(cols);
+}
+function projectCards(main){main.append(head('Projects','A home for each stream of work.'));const grid=el('div','project-grid');for(const p of data.projects){const tasks=data.records.filter(r=>r.projectId===p.id&&r.type==='task'),done=tasks.filter(r=>r.status==='done').length;const a=link('',routeUrl({view:'project',project:p.id}),'project-card');a.dataset.project=p.id;a.append(el('span','project-icon','▱'),el('h2','',p.name),el('p','',p.description));const counts=el('div','project-counts');counts.append(el('span','',tasks.length+' tasks'),el('span','',data.records.filter(r=>r.projectId===p.id&&r.type==='journal').length+' journal entries'),el('span','',done+' done'),el('span','',data.records.filter(r=>r.projectId===p.id&&r.type==='document'&&r.documentState!=='historical').length+' references'));a.append(counts);grid.append(a);}main.append(grid);if(!data.projects.length)main.append(empty('No projects connected','Add a project and its approved note folders to sources.json.'));const note=el('div','note');note.append(el('strong','','Connect projects deliberately'),el('p','','Projects appear only when their note folders are listed in sources.json. No other workspace folders are scanned.'));main.append(note);}
+function projectPage(main,route){const p=data.projects.find(p=>p.id===route.project);if(!p){main.append(empty('Project not found','Choose a connected project from the sidebar.'));return;}main.append(head(p.name,p.description,'PROJECT'));const rows=data.records.filter(r=>r.projectId===p.id);main.append(section('Tasks',routeUrl({view:'tasks',project:p.id})),taskList(rows.filter(r=>r.type==='task')));const sec=el('section','section-spacer');sec.append(section('Journal',routeUrl({view:'journal',project:p.id})));const grid=el('div','journal-grid');for(const r of rows.filter(r=>r.type==='journal'))grid.append(journalCard(r));sec.append(grid);main.append(sec);const docs=el('section','section-spacer');docs.append(section('Reference library',routeUrl({view:'documents',project:p.id})),el('p','subtitle','Browse this project’s references by topic, or search within its library.'));main.append(docs);}
+function detail(main,id){const r=data.records.find(r=>r.id===id);main.append(link('← Back to your work',lastList,'detail-back'));if(!r){main.append(empty('This note is no longer available','It may have moved or been removed from the configured sources.'));return;}main.append(head(r.title,r.summary,r.projectName+' / '+r.type));const meta=el('div','detail-meta');if(r.type==='document')meta.append(el('span','badge',documentStates[r.documentState]||'Current'),el('span','',referenceTopics.find(t=>t.id===r.topic)?.label||'Other references'));if(r.status)meta.append(badge(r.status));if(r.type==='task')meta.append(el('span','',categoryLabel(r.category)));if(r.editable){const actions=el('div','task-actions');actions.append(button('Edit task',()=>editTask(r)),button(r.status==='done'?'Reopen task':'Mark done',b=>toggleTask(r,b)));main.append(actions);}if(r.date)meta.append(el('span','',dateLabel(r.date)));if(r.taskId)meta.append(el('span','',r.taskId));meta.append(el('span','detail-source','Source: '+r.source));main.append(meta);const body=el('article','document');body.append(renderMarkdown(r.body,r.links));main.append(body);document.title=r.title+' · Work Journal';}
+function workload(main,route){
+  main.append(head('Workload','Recorded tasks, grouped by the kind of work you do.'),filters(route));
+  const s=workloadSummary(filterRecords(data.records,{project:route.project,category:route.category}));
+  const stats=el('div','stats');for(const [label,value]of [['Open tasks',s.open],['In progress',s.inProgress],['Blocked / to verify',s.blocked+' / '+s.verify],['Completed · last 7 days',s.completedWeek]]){const card=el('div','stat');card.append(el('span','stat-label',label),el('strong','stat-value',String(value)));stats.append(card);}main.append(stats);
+  function table(title,headers,rows){main.append(section(title));const wrap=el('div','panel table-wrap workload-table'),t=el('table'),thead=el('thead'),hr=el('tr');for(const h of headers){const th=el('th','',h);th.scope='col';hr.append(th);}thead.append(hr);t.append(thead);const body=el('tbody');for(const row of rows){const tr=el('tr');for(const value of row)tr.append(el('td','',String(value)));body.append(tr);}t.append(body);wrap.append(t);main.append(wrap);}
+  const counts=r=>[r.label,r.todo,r.inProgress,r.blocked,r.verify,r.done];
+  table('By category',['Category','To do','In progress','Blocked','To verify','Done'],s.byCategory.map(counts));
+  table('By project',['Project','To do','In progress','Blocked','To verify','Done'],s.byProject.map(counts));
+  table('Last seven calendar days',['Date','Completed','Tasks last updated'],s.daily.map(d=>[dateLabel(d.date),d.completed,d.updated]));
+  const note=el('div','note');note.append(el('strong','',s.completedToday+' completed today · '+s.undatedCompleted+' completed without a recorded date'),el('p','','Counts reflect current tasks, not hours or capacity. Dates use Europe/Berlin. Reopened tasks leave the completion counts; latest-update counts are not a history of every edit.'));main.append(note,section('Recently updated'),taskList(s.recent));
+}
+function guide(main){main.append(head('A journal, not a tracker.','You decide what gets recorded. The dashboard helps you find it again.'));const article=el('article','document');article.append(renderMarkdown('# Your daily workflow\n\n1. Tell me what you worked on, what changed, and what still needs attention.\n2. I update the appropriate project’s Markdown tasks and dated journal entry.\n3. Click **Refresh** here to see the latest saved notes.\n\n## One source of truth\n\nCreate tasks from Tasks → New task. Open a task to edit its title, details, status, priority, or category. Use its checkbox to complete or reopen it. Saves update project Markdown directly and keep the previous version in the task folder’s .history directory. Journal entries and references remain read-only in the app. No database, automatic activity collection, terminal monitoring, or cloud integration is used. Your existing file-sync settings still apply to the folders themselves.\n\n## What the statuses mean\n\n- **To do:** planned work.\n- **In progress:** work has started.\n- **Blocked:** a dependency prevents progress.\n- **To verify:** a result still needs evidence.\n- **Done:** completion is explicitly recorded.\n\n## Connecting another project\n\nCreate a work-log folder in that project and use the templates shipped with Work-Dashboard. Add only that folder to sources.json. Set taskRoot and taskPrefix to enable editing for that project. For Docker, keep note mounts read-only and add a writable mount only for its tasks folder.\n\n## Reading details\n\nClick any task, journal entry, or reference note to read it. Links to other configured notes open here. External web links open a new tab; references outside the configured folders stay as plain text.\n\n## Keep it local\n\nUse localhost. This personal dashboard has no user accounts and should not be exposed to a network. No scheduled transfer is needed; Refresh reads the files as they are now.'));main.append(article);}
+function render(){const main=$('#main');main.replaceChildren();let route=Object.fromEntries(new URLSearchParams(location.hash.slice(1)));route.view ||= 'overview';if(!route.record)lastList=location.hash||'#view=overview';document.title='Work Dashboard';
+  const inLibrary=route.view==='documents'&&!route.record;
+  if(inLibrary){query=route.q||'';$('#search').value=query;}
+  $('#search').placeholder=inLibrary?'Search this library…':'Search your work…';
+  $('#search').setAttribute('aria-label',inLibrary?'Search references in selected project and topic':'Search your work');
+  const displayView=query&&!inLibrary?'search':route.record?'detail':route.view;
+  $('#breadcrumb').textContent='Workspace / '+({overview:'Overview',workload:'Workload',tasks:'Tasks',journal:'Journal',projects:'Projects',project:'Project',documents:'Reference library',guide:'Guide',detail:'Note',search:'Search'}[displayView]||'Overview');
+  document.querySelectorAll('#navigation a').forEach(a=>{const active=a.dataset.view===displayView;a.classList.toggle('active',active);if(active)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
+  if(data.warnings.length){const warning=el('details','warning');warning.append(el('summary','',data.warnings.length+' source notice'+(data.warnings.length===1?'':'s')));const list=el('ul');for(const w of data.warnings)list.append(el('li','',w));warning.append(list);main.append(warning);}
+  if(inLibrary){library(main,route);return;}
+  if(query){const rows=filterRecords(data.records,{query});main.append(head('Search your work',rows.length+' result'+(rows.length===1?'':'s')+' for “'+query+'”'),docList(rows));return;}
+  if(route.record){detail(main,route.record);return;}
+  if(route.view==='workload'){workload(main,route);return;}if(route.view==='overview'){overview(main);return;}if(route.view==='projects'){projectCards(main);return;}if(route.view==='project'){projectPage(main,route);return;}if(route.view==='guide'){guide(main);return;}
+  const view={tasks:['Tasks','The next steps, with the context behind them.','task'],journal:['Journal','A chronological record of work, decisions, and lessons.','journal'],documents:['Reference library','The details that support your work.','document']}[route.view];
+  if(!view){overview(main);return;}const [title,sub,type]=view;const heading=head(title,sub);if(type==='task'&&data.projects.some(p=>p.canCreateTasks))heading.append(button('＋ New task',()=>editTask(null,route.project),'button primary'));main.append(heading);const rows=filterRecords(data.records,{project:route.project,status:route.status,category:route.category,type});const bar=filters(route,type==='task');bar.append(el('span','results-count',rows.length+' records'));main.append(bar);
+  if(type==='task')main.append(taskList(rows));else if(type==='journal'){if(!rows.length)main.append(empty('No journal entries yet','Add a dated entry to a configured work-log folder.'));else{const grid=el('div','journal-grid');for(const r of rows)grid.append(journalCard(r));main.append(grid);}}else main.append(docList(rows));
+}
+async function refresh(){if(loading)return;loading=true;$('#refresh').disabled=true;try{const response=await fetch('/api/catalog',{cache:'no-store'});if(!response.ok)throw new Error('The source catalog could not be loaded. Check the server terminal and sources.json.');data=await response.json();$('#task-count').textContent=String(data.records.filter(r=>r.type==='task'&&r.status!=='done').length);const projects=$('#project-nav');projects.replaceChildren();for(const p of data.projects){const a=link('',routeUrl({view:'project',project:p.id}));a.dataset.project=p.id;a.title=p.description;a.append(el('span','project-dot','●'),document.createTextNode(p.name));projects.append(a);}$('#loaded-at').textContent='Refreshed '+new Intl.DateTimeFormat('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Berlin'}).format(new Date(data.loadedAt))+' · Berlin';render();$('#announcement').textContent='Journal refreshed. '+data.records.length+' records loaded.';}catch(err){$('#main').replaceChildren(empty('Unable to refresh',err.message));$('#announcement').textContent=err.message;}finally{loading=false;$('#refresh').disabled=false;}}
+$('#refresh').addEventListener('click',refresh);
+$('#search').addEventListener('input',e=>{query=e.target.value;const route=Object.fromEntries(new URLSearchParams(location.hash.slice(1)));if(route.view==='documents'&&!route.record)history.replaceState(null,'',routeUrl({...route,q:query}));render();});
+document.addEventListener('click',e=>{
+  const a=e.target.closest('a');
+  if(!a || e.button!==0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey)return;
+  if(a.classList.contains('skip')){e.preventDefault();$('#main').focus();return;}
+  const href=a.getAttribute('href');
+  if(query && href?.startsWith('#') && href.includes('=')){
+    query='';$('#search').value='';
+    if(href===location.hash){e.preventDefault();render();$('#main').focus({preventScroll:true});window.scrollTo(0,0);}
+  }
+});
+window.addEventListener('hashchange',()=>{query='';$('#search').value='';render();window.scrollTo(0,0);$('#main').focus({preventScroll:true});});
+document.addEventListener('keydown',e=>{if(e.key==='/'&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)){e.preventDefault();$('#search').focus();}if(e.key==='Escape'&&document.activeElement===$('#search')){query='';$('#search').value='';const route=Object.fromEntries(new URLSearchParams(location.hash.slice(1)));if(route.view==='documents')history.replaceState(null,'',routeUrl({...route,q:''}));render();$('#search').blur();}});
+await refresh();

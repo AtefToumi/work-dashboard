@@ -1,0 +1,6 @@
+interface:
+  display_name: "Tidy Up"
+  short_description: "Wrap up work chats and update the journal"
+  default_prompt: "Use $tidy-up to document this session, update the work journal, and leave clear next steps."
+policy:
+  allow_implicit_invocation: true

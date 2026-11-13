@@ -1,0 +1,12 @@
+{
+  "projects": [
+    {
+      "id": "example",
+      "name": "Example Project",
+      "description": "Synthetic records demonstrating the portable work-journal workflow.",
+      "roots": ["examples/work-log", "examples/references"],
+      "taskRoot": "examples/work-log/tasks",
+      "taskPrefix": "EXAMPLE"
+    }
+  ]
+}

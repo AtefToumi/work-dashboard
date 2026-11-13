@@ -1,0 +1,12 @@
+{
+  "projects": [
+    {
+      "id": "my-project",
+      "name": "My Project",
+      "description": "Work tracked outside the dashboard repository.",
+      "roots": ["../MyProject/work-log", "../MyProject/runbooks"],
+      "taskRoot": "../MyProject/work-log/tasks",
+      "taskPrefix": "PROJECT"
+    }
+  ]
+}
